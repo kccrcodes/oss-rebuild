@@ -1,0 +1,44 @@
+# inference differs:
+#   requires.system_deps: added libstdc++; removed npm (vs inferred)
+#  deps diff:
+#    wget -O - https://unofficial-builds.nodejs.org/download/release/v24.15.0/node-v24.15.0-linux-x64-musl.tar.gz | tar xzf - --strip-components=1 -C /usr/local/
+#   -/usr/local/bin/npx --package=npm@11.12.1 -c 'npm_config_registry=http://npm:2026-09-22T14:08:27Z@TIMEWARP npm install --force --no-audit --replace-registry-host=never --allow-remote=all'
+#   +npm_config_registry=http://npm:2026-09-22T14:08:27Z@TIMEWARP /usr/local/bin/npm ci --ignore-scripts --no-audit --replace-registry-host=never
+#  build diff:
+#   -/usr/local/bin/npx --package=npm@11.12.1 -c 'npm run build && npm pack'
+#   +/usr/local/bin/npm run build
+#   +/usr/local/bin/npm pack --ignore-scripts
+flow:
+  location:
+    repo: https://github.com/mojaloop/api-snippets
+    ref: 0ced19c677a30bcf5c4aefff0b9617b75963466b
+  src:
+    - uses: git-checkout
+  deps:
+    # Upstream package.json has `_nodeVersion: 24.15.0` and `_npmVersion:
+    # 11.12.1`. Node 24.15.0 bundles npm 11.12.1, so the bundled npm is used
+    # directly instead of the `npx --package=npm@...` wrapper.
+    - uses: npm/install-node
+      with:
+        nodeVersion: 24.15.0
+    # NOTE: The inferred npm_custom_build fails here. `npm install` runs the
+    # `prepare` script (husky install && npm run build), and the build calls
+    # `npx ts-node`. The outer `npx -c` wrapper exports npm_config_call to
+    # child processes, so the nested `npx ts-node` exits with EUSAGE.
+    # `npm ci --ignore-scripts` installs the locked tree without lifecycle
+    # scripts and the build runs once, explicitly, below.
+    # NOTE: npm 11.3+ drops the timewarp credentials when it rewrites locked
+    # tarball URLs onto the registry host, matching npm/install.
+    - runs: npm_config_registry={{.BuildEnv.TimewarpURLFromString "npm" "2026-09-22T14:08:27Z"}} /usr/local/bin/npm ci --ignore-scripts --no-audit --replace-registry-host=never
+  build:
+    # `build` bundles the OpenAPI specs into docs/, generates TypeScript types
+    # and JSON schemas into src/, and compiles to lib/. lib/ is gitignored,
+    # so a plain `npm pack` of the checkout omits the 120 generated files.
+    - runs: /usr/local/bin/npm run build
+    # `--ignore-scripts` skips `prepare`, which would repeat the build above.
+    - runs: /usr/local/bin/npm pack --ignore-scripts
+  requires:
+    system_deps:
+      # The musl Node.js build links against libstdc++. Built-in npm
+      # strategies get it implicitly through the Alpine npm package.
+      - libstdc++
