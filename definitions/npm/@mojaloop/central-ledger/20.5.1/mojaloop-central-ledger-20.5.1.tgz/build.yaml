@@ -1,0 +1,40 @@
+# inference differs:
+#   requires.system_deps: added libstdc++; removed npm (vs inferred)
+#  deps diff:
+#    wget -O - https://unofficial-builds.nodejs.org/download/release/v24.15.0/node-v24.15.0-linux-x64-musl.tar.gz | tar xzf - --strip-components=1 -C /usr/local/
+#   -/usr/local/bin/npx --package=npm@11.12.1 -c 'npm_config_registry=http://npm:2026-11-20T15:46:57Z@TIMEWARP npm install --force --no-audit --replace-registry-host=never --allow-remote=all'
+#  build diff:
+#   -/usr/local/bin/npx --package=npm@11.12.1 -c 'npm run build && rm -rf node_modules && npm pack'
+#   +/usr/local/bin/npm pack --ignore-scripts
+flow:
+  location:
+    repo: https://github.com/mojaloop/central-ledger
+    ref: 817844ff2863cc63ad67181551b9aa9e0976200f
+  src:
+    - uses: git-checkout
+  deps:
+    # NOTE: The inferred npm_custom_build fails here. `npm install`
+    # runs node-rdkafka's install script (`node-gyp rebuild`), which
+    # needs Python and a C++ toolchain the Alpine image does not have.
+    # A lockfile install is not required anyway: the published tarball
+    # is a pack of the git checkout, with no compiled dist/ and no
+    # prepare script.
+    # Upstream package metadata has `_nodeVersion: 24.15.0` and
+    # `_npmVersion: 11.12.1`. Node 24.15.0 bundles npm 11.12.1, so the
+    # bundled npm is used directly instead of the `npx --package=npm@...`
+    # wrapper.
+    - uses: npm/install-node
+      with:
+        nodeVersion: 24.15.0
+  build:
+    # The published tarball is the git checkout: src/ (TypeScript and JS)
+    # and no dist/. `npm run build` emits dist/, and because .npmignore
+    # does not exclude it, packing after a build would add those files
+    # and miss the published artifact. There is no prepare script, so
+    # a lockfile install is not required either.
+    - runs: /usr/local/bin/npm pack --ignore-scripts
+  requires:
+    system_deps:
+      # The musl Node.js build links against libstdc++. Built-in npm
+      # strategies get it implicitly through the Alpine npm package.
+      - libstdc++
